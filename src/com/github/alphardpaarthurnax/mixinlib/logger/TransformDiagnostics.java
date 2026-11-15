@@ -31,11 +31,11 @@ public final class TransformDiagnostics {
         }
     }
 
-    public static Scope enter(String kind, ClassLoader loader, String className) {
+    public static Scope enter(String kind, ClassLoader loader, String className, String origin) {
         announce();
         long sequence = SEQUENCE.incrementAndGet();
         Thread thread = Thread.currentThread();
-        Entry entry = new Entry(sequence, kind, className, thread.getName(), thread.getId(),
+        Entry entry = new Entry(sequence, kind, className, origin, thread.getName(), thread.getId(),
                 loaderDescription(loader), System.nanoTime());
         IN_FLIGHT.put(sequence, entry);
         int active = ACTIVE.incrementAndGet();
@@ -97,10 +97,11 @@ public final class TransformDiagnostics {
         return descriptions.toString();
     }
 
-    private record Entry(long sequence, String kind, String className, String threadName,
-                         long threadId, String loader, long startedNanos) {
+    private record Entry(long sequence, String kind, String className, String origin,
+                         String threadName, long threadId, String loader, long startedNanos) {
         String describe() {
             return "seq=" + sequence + " kind=" + kind + " class=" + className
+                    + " origin=" + origin
                     + " thread=" + threadName + "#" + threadId + " loader=" + loader;
         }
     }

@@ -5,12 +5,15 @@ import com.github.alphardpaarthurnax.mixinlib.logger.MixinLog;
 import com.github.alphardpaarthurnax.mixinlib.mixin.MixinRuntime;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 /** Game JVM 的主类。在准备好Mixin后调用原版入口 */
 public final class GameBootstrap {
@@ -26,6 +29,8 @@ public final class GameBootstrap {
             URL[] urls = targetUrls(snapshot);
             TargetClassLoader target = new TargetClassLoader(
                     urls, GameBootstrap.class.getClassLoader());
+            target.configureOrigins(canonicalPaths(snapshot.coreClasspath),
+                    canonicalPaths(snapshot.allModJars()));
             MixinRuntime.initialise(target, urls, snapshot);
 
             Thread thread = Thread.currentThread();
@@ -45,6 +50,19 @@ public final class GameBootstrap {
             MixinLog.error("[Bootstrap] fatal game startup failure", throwable);
             throw throwable;
         }
+    }
+
+    /** 把交接的路径统一成 canonical path，供 TargetClassLoader 做来源归类。 */
+    private static Set<String> canonicalPaths(List<String> paths) {
+        Set<String> result = new LinkedHashSet<>();
+        for (String path : paths) {
+            try {
+                result.add(new File(path).getCanonicalPath());
+            } catch (IOException ignored) {
+                result.add(new File(path).getAbsolutePath());
+            }
+        }
+        return result;
     }
 
     private static URL[] targetUrls(LaunchSnapshot snapshot) throws Exception {

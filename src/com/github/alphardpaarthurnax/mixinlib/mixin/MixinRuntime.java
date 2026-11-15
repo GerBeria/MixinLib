@@ -2,6 +2,7 @@ package com.github.alphardpaarthurnax.mixinlib.mixin;
 
 import com.github.alphardpaarthurnax.mixinlib.bootstrap.AgentEntry;
 import com.github.alphardpaarthurnax.mixinlib.bootstrap.LaunchSnapshot;
+import com.github.alphardpaarthurnax.mixinlib.bytecode.BytePreprocessor;
 import com.github.alphardpaarthurnax.mixinlib.janino.RuntimeTransformer;
 import com.github.alphardpaarthurnax.mixinlib.loader.TargetClassLoader;
 import com.github.alphardpaarthurnax.mixinlib.logger.MixinLog;
@@ -28,6 +29,7 @@ import java.util.jar.Manifest;
 
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
+import com.llamalad7.mixinextras.MixinExtrasBootstrap;
 
 import org.spongepowered.asm.launch.MixinBootstrap;
 import org.spongepowered.asm.mixin.FabricUtil;
@@ -65,14 +67,29 @@ public final class MixinRuntime {
 
         IMixinTransformer transformer = starsector.createTransformer();
         target.setTransformer(transformer);
+        // D1：init() 必须晚于 createTransformer()（MixinInternals 需要 activeTransformer）。
+        MixinExtrasBootstrap.init();
+        // D6：5 个自愈类的静态初始化 / ASM 内部类必须在 addTransformer 之前完成，
+        // 否则回调里首次加载会 ClassCircularityError（limixinlib D1 实测）。
+        BytePreprocessor.warmUp();
         AgentEntry.instrumentation().addTransformer(new RuntimeTransformer(target, transformer), false);
 
         List<InjectorSnapshot.PluginExpectation> expectations = new ArrayList<>();
+        List<String> pluginClasses = new ArrayList<>();
         for (DiscoveredConfig config : configs) {
             expectations.add(new InjectorSnapshot.PluginExpectation(
                     config.name(), config.pluginClass()));
+            if (config.pluginClass() != null && !config.pluginClass().isBlank()) {
+                pluginClasses.add(config.pluginClass());
+            }
         }
         InjectorSnapshot.configure(expectations);
+        // G11：config 声明的 plugin 类不参与 mixin 织入。
+        TransformerExclusions.addAll(pluginClasses, "config-plugin");
+        // 同步到 sponge 的 getClassRestrictions() 通道，让框架自己也对 plugin 包返回排除语义。
+        for (String excluded : TransformerExclusions.entries().keySet()) {
+            starsector.getTransformerProvider().addTransformerExclusion(excluded);
+        }
         InjectorSnapshot.announce();
         // ③ 自检由 TargetClassLoader / RuntimeTransformer 在首次 transformClass 之后触发（S1-T1）。
 

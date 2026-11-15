@@ -23,6 +23,7 @@ import org.spongepowered.asm.mixin.transformer.Config;
  */
 public final class InjectorSnapshot {
     private static final AtomicBoolean ANNOUNCED = new AtomicBoolean();
+    private static final AtomicBoolean POST_TRANSFORM_ANNOUNCED = new AtomicBoolean();
     private static final AtomicBoolean SELF_CHECKED = new AtomicBoolean();
     private static volatile List<PluginExpectation> expectations = List.of();
 
@@ -42,18 +43,7 @@ public final class InjectorSnapshot {
         if (!ANNOUNCED.compareAndSet(false, true)) {
             return;
         }
-        try {
-            Set<Class<? extends Annotation>> registered = InjectionInfo.getRegisteredAnnotations();
-            List<String> names = new ArrayList<>();
-            for (Class<? extends Annotation> annotation : registered) {
-                names.add("@" + annotation.getSimpleName());
-            }
-            Collections.sort(names);
-            MixinLog.info("[Injector] registered=" + registered.size()
-                    + " annotations=" + String.join(",", names));
-        } catch (Throwable throwable) {
-            MixinLog.error("[Injector] 注入器注解注册表快照失败", throwable);
-        }
+        logRegistry("startup");
         for (PluginExpectation expectation : expectations) {
             MixinLog.info("[Injector] config=" + expectation.configName()
                     + " pluginDeclared="
@@ -62,12 +52,36 @@ public final class InjectorSnapshot {
     }
 
     /**
+     * 输出当前注入器注解注册表。单独成方法，供「初始化后」与「首次织入后」两个时机复用
+     * —— MixinExtras 会在首次 transformClass() 之后再注册一部分注入器，两次数值不同。
+     */
+    private static void logRegistry(String stage) {
+        try {
+            Set<Class<? extends Annotation>> registered = InjectionInfo.getRegisteredAnnotations();
+            List<String> names = new ArrayList<>();
+            for (Class<? extends Annotation> annotation : registered) {
+                names.add("@" + annotation.getSimpleName());
+            }
+            Collections.sort(names);
+            MixinLog.info("[Injector] registered=" + registered.size()
+                    + " stage=" + stage
+                    + " annotations=" + String.join(",", names));
+        } catch (Throwable throwable) {
+            MixinLog.error("[Injector] 注入器注解注册表快照失败 stage=" + stage, throwable);
+        }
+    }
+
+    /**
      * ③：由 {@code TargetClassLoader} / {@code RuntimeTransformer} 在首次
-     * {@code transformClass()} 返回之后触发，一次性闸。
+     * {@code transformClass()} 返回之后触发，一次性闸；同时补一条首次织入后的注册表快照。
      *
      * <p>默认只告警；{@code -Dmixinlib.plugin.strict=true} 时以异常硬失败。
      */
     public static void runSelfCheckIfNeeded() {
+        // 独立于下方 expectations 早退：即使没有任何 config 声明 plugin，也要记录首次织入后的注册表。
+        if (POST_TRANSFORM_ANNOUNCED.compareAndSet(false, true)) {
+            logRegistry("post-first-transform");
+        }
         List<PluginExpectation> current = expectations;
         if (current.isEmpty() || !SELF_CHECKED.compareAndSet(false, true)) {
             return;
